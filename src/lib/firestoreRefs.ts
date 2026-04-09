@@ -6,6 +6,12 @@ export const refs = {
   venue: (venueId: string) => doc(db, "venues", venueId),
   venues: () => collection(db, "venues"),
 
+  booths: () => collection(db, "booths"),
+  booth: (boothId: string) => doc(db, "booths", boothId),
+
+  bookings: () => collection(db, "bookings"),
+  booking: (bookingId: string) => doc(db, "bookings", bookingId),
+  
   restaurant: (restaurantId: string) => doc(db, "restaurants", restaurantId),
   restaurants: () => collection(db, "restaurants"),
 
