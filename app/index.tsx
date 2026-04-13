@@ -76,7 +76,6 @@ export default function Home() {
         }}
       >
         <View style={[styles.wrap, { maxWidth, alignSelf: "center" }]}>
-          {/* Hero / Brand */}
           <View style={styles.hero}>
             <Text style={styles.eyebrow}>VENUE INFRASTRUCTURE</Text>
             <Text style={styles.title}>VenueHub</Text>
@@ -92,7 +91,6 @@ export default function Home() {
             </View>
           </View>
 
-          {/* Customer section */}
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionTitle}>Customer access</Text>
             <Text style={styles.sectionSub}>
@@ -119,9 +117,18 @@ export default function Home() {
               <MetaPill label="Booth selection" />
               <MetaPill label="Availability aware" />
             </ModeCard>
+
+            <ModeCard
+              title="My loyalty"
+              subtitle="Check your points, tier, completed visits, and progress to the next level."
+              onPress={() => router.push("/(customer)/loyalty")}
+            >
+              <MetaPill label="Customer profile" />
+              <MetaPill label="Points + tiers" />
+              <MetaPill label="Progress tracking" />
+            </ModeCard>
           </View>
 
-          {/* Staff / Admin section */}
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionTitle}>Staff & operator access</Text>
             <Text style={styles.sectionSub}>
@@ -159,7 +166,6 @@ export default function Home() {
             </ModeCard>
           </View>
 
-          {/* Utilities */}
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionTitle}>Demo utilities</Text>
             <Text style={styles.sectionSub}>
@@ -191,7 +197,6 @@ export default function Home() {
             </Pressable>
           </View>
 
-          {/* Footer note */}
           <View style={styles.footerBox}>
             <Text style={styles.footerTitle}>Pitch note</Text>
             <Text style={styles.footerHint}>

@@ -20,6 +20,9 @@ export const refs = {
 
   order: (orderId: string) => doc(db, "orders", orderId),
   orders: () => collection(db, "orders"),
+
+  loyaltyProfiles: () => collection(db, "loyaltyProfiles"),
+  loyaltyProfile: (profileId: string) => doc(db, "loyaltyProfiles", profileId),
   
    venueTable: (venueId: string, tableId: string) =>
     doc(db, "venues", venueId, "tables", tableId),

@@ -20,6 +20,7 @@ import { listBoothsForVenue, Booth } from "../../../src/domain/booths/boothQueri
 import { createBooking } from "../../../src/domain/bookings/bookingService";
 import { hasBookingConflict } from "../../../src/domain/bookings/bookingQueries";
 import { db } from "../../../src/lib/firebase";
+import { normalizeEmail } from "../../../src/utils/identity";
 
 const VENUE_ID = "venue_golfbar_cs";
 const OPENING_HOUR = 10;
@@ -92,7 +93,7 @@ function overlaps(
 }
 
 function isActiveBooking(status?: string) {
-  return status !== "CANCELLED" && status !== "COMPLETED";
+  return status !== "CANCELLED" && status !== "COMPLETED" && status !== "REJECTED";
 }
 
 function getBaseTimeSlots(durationHours: 1 | 2) {
@@ -309,6 +310,36 @@ export default function BookingScreen() {
     });
   }, [selectedBooth, durationHours, bookingsForSelectedDate]);
 
+  const boothAvailabilityMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+
+    for (const booth of booths) {
+      map[booth.id] = computeAvailableSlotsForBooth({
+        boothId: booth.id,
+        durationHours,
+        bookings: bookingsForSelectedDate,
+      });
+    }
+
+    return map;
+  }, [booths, durationHours, bookingsForSelectedDate]);
+
+  const sortedBooths = useMemo(() => {
+    const copy = [...booths];
+
+    copy.sort((a, b) => {
+      const aCount = boothAvailabilityMap[a.id]?.length ?? 0;
+      const bCount = boothAvailabilityMap[b.id]?.length ?? 0;
+
+      if (aCount === 0 && bCount > 0) return 1;
+      if (aCount > 0 && bCount === 0) return -1;
+
+      return (a.sort ?? 999) - (b.sort ?? 999);
+    });
+
+    return copy;
+  }, [booths, boothAvailabilityMap]);
+
   useEffect(() => {
     if (!startTime) return;
     if (!availableSlotsForSelectedBooth.includes(startTime)) {
@@ -316,14 +347,40 @@ export default function BookingScreen() {
     }
   }, [availableSlotsForSelectedBooth, startTime]);
 
+  useEffect(() => {
+    if (sortedBooths.length === 0) return;
+
+    const currentSlots = selectedBoothId
+      ? boothAvailabilityMap[selectedBoothId] ?? []
+      : [];
+
+    if (currentSlots.length > 0) return;
+
+    const firstAvailable = sortedBooths.find(
+      (b) => (boothAvailabilityMap[b.id] ?? []).length > 0
+    );
+
+    if (firstAvailable) {
+      setSelectedBoothId(firstAvailable.id);
+      setStartTime("");
+    }
+  }, [sortedBooths, boothAvailabilityMap, selectedBoothId]);
+
   const endTime = useMemo(() => {
     if (!startTime) return "";
     return addHoursToTime(startTime, durationHours);
   }, [startTime, durationHours]);
 
+  const normalizedCustomerEmail = useMemo(
+    () => normalizeEmail(customerEmail),
+    [customerEmail]
+  );
+
   const validate = () => {
     if (!customerName.trim()) return "Enter customer name.";
-    if (!customerEmail.trim() || !customerEmail.includes("@")) return "Enter a valid email.";
+    if (!normalizedCustomerEmail || !normalizedCustomerEmail.includes("@")) {
+      return "Enter a valid email.";
+    }
     if (!customerPhone.trim()) return "Enter phone number.";
     if (!bookingDate) return "Select a booking date.";
     if (selectedDayMeta?.isFull) return "That date is fully booked. Please choose another date.";
@@ -370,7 +427,7 @@ export default function BookingScreen() {
         boothType: selectedBooth.type,
 
         customerName: customerName.trim(),
-        customerEmail: customerEmail.trim(),
+        customerEmail: normalizedCustomerEmail,
         customerPhone: customerPhone.trim(),
 
         bookingDate,
@@ -380,7 +437,7 @@ export default function BookingScreen() {
 
         eventType,
         guestCount: Number(guestCount),
-        notes,
+        notes: notes.trim(),
       });
 
       router.replace({
@@ -425,9 +482,30 @@ export default function BookingScreen() {
           ) : (
             <>
               <Text style={styles.section}>Your details</Text>
-              <Input value={customerName} onChangeText={setCustomerName} placeholder="Full name" />
-              <Input value={customerEmail} onChangeText={setCustomerEmail} placeholder="Email" />
-              <Input value={customerPhone} onChangeText={setCustomerPhone} placeholder="Phone number" />
+              <Input
+                value={customerName}
+                onChangeText={setCustomerName}
+                placeholder="Full name"
+              />
+              <Input
+                value={customerEmail}
+                onChangeText={setCustomerEmail}
+                placeholder="Email"
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              <Input
+                value={customerPhone}
+                onChangeText={setCustomerPhone}
+                placeholder="Phone number"
+                keyboardType="phone-pad"
+              />
+
+              {!!normalizedCustomerEmail && (
+                <Text style={styles.helper}>
+                  Booking email: {normalizedCustomerEmail}
+                </Text>
+              )}
 
               <Text style={styles.section}>Booking date</Text>
 
@@ -501,7 +579,7 @@ export default function BookingScreen() {
                   mode="date"
                   display="default"
                   minimumDate={new Date()}
-                  onChange={(event, selectedDate) => {
+                  onChange={(_, selectedDate) => {
                     setShowDatePicker(false);
                     if (selectedDate) onPickDate(selectedDate);
                   }}
@@ -512,7 +590,9 @@ export default function BookingScreen() {
                 <Text style={styles.helper}>
                   {selectedDayMeta.isFull
                     ? "Selected date is fully booked."
-                    : `${selectedDayMeta.availableSlotsCount} slot${selectedDayMeta.availableSlotsCount === 1 ? "" : "s"} available across all booths.`}
+                    : `${selectedDayMeta.availableSlotsCount} slot${
+                        selectedDayMeta.availableSlotsCount === 1 ? "" : "s"
+                      } available across all booths.`}
                 </Text>
               )}
 
@@ -536,23 +616,24 @@ export default function BookingScreen() {
                 <Text style={styles.emptyText}>No booths loaded yet.</Text>
               ) : (
                 <View style={styles.rowWrap}>
-                  {booths.map((b) => {
+                  {sortedBooths.map((b) => {
                     const active = selectedBoothId === b.id;
-
-                    const boothSlots = computeAvailableSlotsForBooth({
-                      boothId: b.id,
-                      durationHours,
-                      bookings: bookingsForSelectedDate,
-                    });
+                    const boothSlots = boothAvailabilityMap[b.id] ?? [];
+                    const unavailable = boothSlots.length === 0;
 
                     return (
                       <Pressable
                         key={b.id}
+                        disabled={unavailable}
                         onPress={() => {
                           setSelectedBoothId(b.id);
                           setStartTime("");
                         }}
-                        style={[styles.boothCard, active && styles.boothCardActive]}
+                        style={[
+                          styles.boothCard,
+                          active && styles.boothCardActive,
+                          unavailable && styles.boothCardDisabled,
+                        ]}
                       >
                         <Text style={[styles.boothTitle, active && styles.boothTitleActive]}>
                           {b.label}
@@ -568,9 +649,15 @@ export default function BookingScreen() {
                             : "Classic booth setup"}
                         </Text>
 
-                        <Text style={[styles.boothAvailability, active && styles.boothTitleActive]}>
-                          {boothSlots.length === 0
-                            ? "No slots available"
+                        <Text
+                          style={[
+                            styles.boothAvailability,
+                            unavailable && styles.boothAvailabilityDisabled,
+                            active && styles.boothTitleActive,
+                          ]}
+                        >
+                          {unavailable
+                            ? "Fully booked"
                             : `${boothSlots.length} slot${boothSlots.length === 1 ? "" : "s"} available`}
                         </Text>
                       </Pressable>
@@ -605,9 +692,7 @@ export default function BookingScreen() {
                 </View>
               )}
 
-              <Text style={styles.helper}>
-                End time: {endTime || "—"}
-              </Text>
+              <Text style={styles.helper}>End time: {endTime || "—"}</Text>
 
               <Text style={styles.section}>Event type</Text>
               <View style={styles.rowWrap}>
@@ -625,6 +710,7 @@ export default function BookingScreen() {
                 value={guestCount}
                 onChangeText={setGuestCount}
                 placeholder="Guest count"
+                keyboardType="numeric"
               />
               <Input
                 value={notes}
@@ -655,11 +741,15 @@ function Input({
   onChangeText,
   placeholder,
   multiline,
+  autoCapitalize,
+  keyboardType,
 }: {
   value: string;
   onChangeText: (v: string) => void;
   placeholder: string;
   multiline?: boolean;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  keyboardType?: "default" | "email-address" | "phone-pad" | "numeric";
 }) {
   return (
     <TextInput
@@ -668,6 +758,8 @@ function Input({
       placeholder={placeholder}
       placeholderTextColor="rgba(255,255,255,0.45)"
       multiline={multiline}
+      autoCapitalize={autoCapitalize}
+      keyboardType={keyboardType}
       style={[
         styles.input,
         multiline && { minHeight: 88, textAlignVertical: "top" as const },
@@ -806,6 +898,10 @@ const styles = StyleSheet.create({
   boothCardActive: {
     backgroundColor: theme.colors.gold,
   },
+  boothCardDisabled: {
+    opacity: 0.45,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
   boothTitle: {
     color: "white",
     fontWeight: "900",
@@ -837,6 +933,9 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 10,
     fontSize: 12,
+  },
+  boothAvailabilityDisabled: {
+    color: "rgba(255,255,255,0.6)",
   },
 
   slotPill: {

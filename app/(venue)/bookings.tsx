@@ -21,7 +21,7 @@ import { updateBookingStatus } from "../../src/domain/bookings/bookingMutations"
 
 const VENUE_ID = "venue_golfbar_cs";
 
-type StatusFilter = "ALL" | "PENDING" | "CONFIRMED" | "REJECTED";
+type StatusFilter = "ALL" | "PENDING" | "CONFIRMED" | "REJECTED" | "COMPLETED";
 type EventFilter = "ALL" | "CASUAL" | "BIRTHDAY" | "CORPORATE";
 type BoothFilter = "ALL" | string;
 
@@ -33,6 +33,8 @@ function StatusChip({ status }: { status: string }) {
       ? "rgba(255,255,255,0.10)"
       : status === "REJECTED"
       ? "rgba(255,255,255,0.08)"
+      : status === "COMPLETED"
+      ? "rgba(255,215,0,0.18)"
       : "rgba(255,255,255,0.10)";
 
   return (
@@ -68,6 +70,14 @@ function Pill({
     >
       <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function MetaBadge({ text }: { text: string }) {
+  return (
+    <View style={styles.metaBadge}>
+      <Text style={styles.metaBadgeText}>{text}</Text>
+    </View>
   );
 }
 
@@ -142,15 +152,25 @@ export default function VenueBookingsScreen() {
 
   const onStatusChange = async (
     bookingId: string,
-    status: "CONFIRMED" | "REJECTED"
+    status: "CONFIRMED" | "REJECTED" | "COMPLETED"
   ) => {
     try {
       setBusyId(bookingId);
+
       await updateBookingStatus(bookingId, status);
 
       setBookings((prev) =>
         prev.map((b) =>
-          b.id === bookingId ? { ...b, status } : b
+          b.id === bookingId
+            ? {
+                ...b,
+                status,
+                notificationStatus:
+                  status === "CONFIRMED" || status === "REJECTED"
+                    ? "PENDING"
+                    : (b as any).notificationStatus,
+              }
+            : b
         )
       );
     } catch (e: any) {
@@ -160,6 +180,11 @@ export default function VenueBookingsScreen() {
       setBusyId(null);
     }
   };
+
+  const pendingCount = useMemo(
+    () => filtered.filter((b) => b.status === "PENDING").length,
+    [filtered]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -214,7 +239,7 @@ export default function VenueBookingsScreen() {
 
               <Text style={styles.section}>Filter by status</Text>
               <View style={styles.filterRow}>
-                {(["ALL", "PENDING", "CONFIRMED", "REJECTED"] as StatusFilter[]).map((s) => (
+                {(["ALL", "PENDING", "CONFIRMED", "REJECTED", "COMPLETED"] as StatusFilter[]).map((s) => (
                   <Pill
                     key={s}
                     label={s}
@@ -256,6 +281,9 @@ export default function VenueBookingsScreen() {
               </ScrollView>
 
               <Text style={styles.section}>Bookings</Text>
+              <Text style={styles.helper}>
+                {filtered.length} bookings • {pendingCount} pending
+              </Text>
 
               {filtered.length === 0 ? (
                 <Text style={styles.emptyText}>No bookings match the current filters.</Text>
@@ -295,6 +323,9 @@ export default function VenueBookingsScreen() {
 
                             <Text style={styles.smallText}>Phone: {b.customerPhone}</Text>
                             <Text style={styles.smallText}>Booking ID: {b.id}</Text>
+                            <Text style={styles.smallText}>
+                              Notification: {(b as any).notificationStatus ?? "NOT_REQUIRED"}
+                            </Text>
 
                             {b.status === "PENDING" && (
                               <View style={styles.actionRow}>
@@ -317,6 +348,20 @@ export default function VenueBookingsScreen() {
                                 </Pressable>
                               </View>
                             )}
+
+                            {b.status === "CONFIRMED" && (
+                              <View style={styles.actionRow}>
+                                <Pressable
+                                  disabled={busy}
+                                  onPress={() => onStatusChange(b.id, "COMPLETED")}
+                                  style={[styles.completeBtn, busy && { opacity: 0.6 }]}
+                                >
+                                  <Text style={styles.completeBtnText}>
+                                    {busy ? "Updating..." : "Mark Completed"}
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            )}
                           </View>
                         );
                       })}
@@ -329,14 +374,6 @@ export default function VenueBookingsScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function MetaBadge({ text }: { text: string }) {
-  return (
-    <View style={styles.metaBadge}>
-      <Text style={styles.metaBadgeText}>{text}</Text>
-    </View>
   );
 }
 
@@ -391,6 +428,12 @@ const styles = StyleSheet.create({
     color: theme.colors.goldSoft,
     fontWeight: "900",
     fontSize: 18,
+  },
+
+  helper: {
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "700",
+    marginBottom: 8,
   },
 
   emptyText: {
@@ -505,6 +548,18 @@ const styles = StyleSheet.create({
   },
   rejectBtnText: {
     color: "white",
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  completeBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: theme.colors.gold,
+  },
+  completeBtnText: {
+    color: "#111",
     fontWeight: "900",
     textAlign: "center",
   },

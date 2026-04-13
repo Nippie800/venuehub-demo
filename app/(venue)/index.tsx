@@ -300,7 +300,6 @@ export default function VenueDashboard() {
         }}
       >
         <View style={styles.container}>
-          {/* Header */}
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.hTitle}>GOLF BAR</Text>
@@ -327,6 +326,13 @@ export default function VenueDashboard() {
                 <Text style={styles.secondaryHeaderBtnText}>Bookings</Text>
               </Pressable>
 
+              <Pressable
+                onPress={() => router.push("/(venue)/leaderboard")}
+                style={({ pressed }) => [styles.secondaryHeaderBtn, pressed && { opacity: 0.92 }]}
+              >
+                <Text style={styles.secondaryHeaderBtnText}>Leaderboard</Text>
+              </Pressable>
+
               {DEV_MODE && (
                 <Pressable
                   onPress={() => router.push("/(venue)/seed-booths")}
@@ -340,7 +346,6 @@ export default function VenueDashboard() {
 
           <Text style={styles.venueLine}>Venue: {venueId}</Text>
 
-          {/* Live status header */}
           <View style={styles.liveWrap}>
             <View style={[styles.liveCard, flowStyle]}>
               <Text style={styles.liveLabel}>Flow</Text>
@@ -375,14 +380,12 @@ export default function VenueDashboard() {
             </View>
           </View>
 
-          {/* Tabs */}
           <View style={styles.tabsRow}>
             <TabButton k="RUNNER" label={`Runner (${runnerList.length})`} />
             <TabButton k="BOARD" label="Ops Board" />
             <TabButton k="DELIVERED" label={`Delivered (${deliveredList.length})`} />
           </View>
 
-          {/* Runner view */}
           {tab === "RUNNER" && (
             <View style={{ gap: 12, marginTop: 12 }}>
               {runnerList.length === 0 ? (
@@ -393,7 +396,6 @@ export default function VenueDashboard() {
             </View>
           )}
 
-          {/* Board view */}
           {tab === "BOARD" && (
             <>
               <Section title="READY (handoff)" list={groups.READY} />
@@ -403,7 +405,6 @@ export default function VenueDashboard() {
             </>
           )}
 
-          {/* Delivered view */}
           {tab === "DELIVERED" && (
             <View style={{ gap: 12, marginTop: 12 }}>
               {deliveredList.length === 0 ? (
