@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   StyleSheet,
   useWindowDimensions,
+  Modal,
 } from "react-native";
 import { router } from "expo-router";
 import { listenVenueOrders } from "../../src/domain/orders/orderQueries";
@@ -15,51 +16,39 @@ import { listRestaurantsForVenue } from "../../src/domain/restaurants/restaurant
 import { updateOrderStatus } from "../../src/domain/orders/orderMutations";
 import { timeAgoFromTimestamp } from "../../src/ui/time";
 import { theme } from "../../src/ui/theme";
+import { seedLoyaltyProfiles } from "../../src/dev/seedLoyaltyProfiles";
 
 type TabKey = "RUNNER" | "BOARD" | "DELIVERED";
 type Flow = "Optimal" | "Busy" | "Attention";
 
 const DEV_MODE = true;
 
-function GoldBadge({ text }: { text: string }) {
-  return (
-    <View style={styles.badgeGold}>
-      <Text style={styles.badgeGoldText} numberOfLines={1}>
-        {text}
-      </Text>
-    </View>
-  );
-}
-
-function DarkPill({ text }: { text: string }) {
-  return (
-    <View style={styles.pillDark}>
-      <Text style={styles.pillDarkText} numberOfLines={1}>
-        {text}
-      </Text>
-    </View>
-  );
-}
-
 function StatusChip({ status }: { status: string }) {
   const bg =
     status === "PLACED"
-      ? "rgba(255, 215, 0, 0.16)"
+      ? "rgba(255, 215, 0, 0.12)"
       : status === "ACCEPTED"
-      ? "rgba(255, 215, 0, 0.24)"
+      ? "rgba(255, 215, 0, 0.18)"
       : status === "PREPARING"
-      ? "rgba(255, 255, 255, 0.10)"
+      ? "rgba(255,255,255,0.08)"
       : status === "READY"
-      ? "rgba(255, 215, 0, 0.34)"
+      ? "rgba(120, 214, 128, 0.18)"
       : status === "DELIVERED"
-      ? "rgba(255, 255, 255, 0.08)"
+      ? "rgba(255,255,255,0.08)"
       : "rgba(255,255,255,0.08)";
 
-  const text = status === "READY" ? "READY" : status === "PLACED" ? "NEW" : status;
+  const color =
+    status === "READY"
+      ? "#9BE38B"
+      : status === "PLACED"
+      ? theme.colors.goldSoft
+      : "rgba(255,255,255,0.9)";
+
+  const text = status === "PLACED" ? "New" : status;
 
   return (
     <View style={[styles.statusChip, { backgroundColor: bg }]}>
-      <Text style={styles.statusChipText}>{text}</Text>
+      <Text style={[styles.statusChipText, { color }]}>{text}</Text>
     </View>
   );
 }
@@ -84,35 +73,91 @@ function flowLabel(active: number, ready: number, placed: number): Flow {
   return "Optimal";
 }
 
-function flowCardStyle(flow: Flow) {
+function flowMeta(flow: Flow) {
   switch (flow) {
     case "Optimal":
       return {
-        backgroundColor: "rgba(255, 255, 255, 0.06)",
-        borderColor: "rgba(255, 255, 255, 0.14)",
+        dot: "#84D44B",
+        hint: "Stable — no intervention needed",
+        borderColor: "rgba(132,212,75,0.22)",
+        bg: "rgba(132,212,75,0.05)",
       };
     case "Busy":
       return {
-        backgroundColor: "rgba(255, 215, 0, 0.10)",
-        borderColor: "rgba(255, 215, 0, 0.22)",
+        dot: theme.colors.goldSoft,
+        hint: "Load building — monitor handoff speed",
+        borderColor: "rgba(255,215,0,0.20)",
+        bg: "rgba(255,215,0,0.05)",
       };
     case "Attention":
       return {
-        backgroundColor: "rgba(255, 215, 0, 0.18)",
-        borderColor: "rgba(255, 215, 0, 0.34)",
+        dot: "#FF9C3A",
+        hint: "Queue pressure rising — action recommended",
+        borderColor: "rgba(255,156,58,0.22)",
+        bg: "rgba(255,156,58,0.06)",
       };
   }
 }
 
+function getClockLabel() {
+  const now = new Date();
+  return now.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  accent?: "gold" | "green" | "muted";
+}) {
+  const valueColor =
+    accent === "gold"
+      ? theme.colors.goldSoft
+      : accent === "green"
+      ? "#9BE38B"
+      : "white";
+
+  return (
+    <View style={styles.statCard}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={[styles.statValue, { color: valueColor }]}>{value}</Text>
+      <Text style={styles.statHint}>{hint}</Text>
+    </View>
+  );
+}
+
+function MenuAction({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.menuAction, pressed && { opacity: 0.92 }]}>
+      <Text style={styles.menuActionText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function VenueDashboard() {
   const venueId = "venue_golfbar_cs";
-
   const { width } = useWindowDimensions();
-  const hPad = useMemo(() => (width < 380 ? 16 : 24), [width]);
+  const hPad = useMemo(() => (width < 380 ? 14 : 18), [width]);
 
   const [tab, setTab] = useState<TabKey>("RUNNER");
   const [orders, setOrders] = useState<any[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const unsub = listenVenueOrders(venueId, setOrders);
@@ -185,7 +230,6 @@ export default function VenueDashboard() {
     const mins: number[] = [];
     for (const o of sorted) {
       if (o.status !== "DELIVERED") continue;
-
       const created = tsToDate(o.createdAt);
       const delivered = tsToDate(o.deliveredAt) || tsToDate(o.updatedAt);
       const m = minutesBetween(created, delivered);
@@ -195,12 +239,31 @@ export default function VenueDashboard() {
     const avg = mins.length ? Math.round(mins.reduce((a, b) => a + b, 0) / mins.length) : null;
     const flow = flowLabel(active, ready, placed);
 
-    return { active, ready, avgFulfillment: avg, flow };
+    return {
+      active,
+      ready,
+      delivered: groups.DELIVERED.length,
+      avgFulfillment: avg,
+      flow,
+    };
   }, [sorted, groups]);
+
+  const markDelivered = async (orderId: string) => {
+    try {
+      setBusyId(orderId);
+      await updateOrderStatus(orderId, "DELIVERED");
+    } catch (e: any) {
+      console.log(e);
+      Alert.alert("Update failed", e?.message ?? "Unknown error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const flowInfo = flowMeta(live.flow);
 
   const TabButton = ({ k, label }: { k: TabKey; label: string }) => {
     const active = tab === k;
-
     return (
       <Pressable
         onPress={() => setTab(k)}
@@ -217,69 +280,63 @@ export default function VenueDashboard() {
     );
   };
 
-  const markDelivered = async (orderId: string) => {
-    try {
-      setBusyId(orderId);
-      await updateOrderStatus(orderId, "DELIVERED");
-    } catch (e: any) {
-      console.log(e);
-      Alert.alert("Update failed", e?.message ?? "Unknown error");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const OrderCard = ({ o, showAction }: { o: any; showAction?: boolean }) => {
     const disabled = busyId === o.id;
 
     return (
-      <View style={styles.card}>
-        <View style={styles.cardTop}>
+      <View style={styles.orderCard}>
+        <View style={styles.orderTopRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>Table {o.tableId}</Text>
-            <Text style={styles.cardMeta}>{o.createdLabel}</Text>
+            <Text style={styles.orderTitle}>
+              Table {o.tableId}
+              {o.boothLabel ? ` · ${o.boothLabel}` : ""}
+            </Text>
+            <Text style={styles.orderSub}>
+              {o.restaurantName} · {Array.isArray(o.items) ? `${o.items.length} items` : "Order"}
+            </Text>
           </View>
 
-          <StatusChip status={o.status} />
+          <View style={styles.orderRightMeta}>
+            <StatusChip status={o.status} />
+            <Text style={styles.orderTime}>
+              {tsToDate(o.updatedAt ?? o.createdAt)?.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              }) ?? o.createdLabel}
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.badgeRow}>
-          <GoldBadge text={o.restaurantName} />
-          <DarkPill text={`R${o.subtotal}`} />
-          <DarkPill text="In-venue delivery" />
-        </View>
-
-        {showAction && o.status === "READY" && (
+        {showAction && o.status === "READY" ? (
           <Pressable
             disabled={disabled}
             onPress={() => markDelivered(o.id)}
             style={({ pressed }) => [
-              styles.primaryBtn,
-              disabled && { opacity: 0.55 },
+              styles.primaryActionBtn,
+              disabled && { opacity: 0.6 },
               pressed && !disabled && { opacity: 0.92 },
             ]}
           >
-            <Text style={styles.primaryBtnText}>
+            <Text style={styles.primaryActionBtnText}>
               {disabled ? "Updating..." : "Mark Delivered"}
             </Text>
           </Pressable>
-        )}
-
-        <Text style={styles.orderId}>Order: {o.id}</Text>
+        ) : null}
       </View>
     );
   };
 
   const Section = ({ title, list }: { title: string; list: any[] }) => (
-    <View style={{ gap: 10, marginTop: 14 }}>
-      <Text style={styles.sectionTitle}>
-        {title} <Text style={{ opacity: 0.75 }}>({list.length})</Text>
+    <View style={{ marginTop: 18 }}>
+      <Text style={styles.sectionHeader}>
+        {title} <Text style={{ color: "rgba(255,255,255,0.45)" }}>({list.length})</Text>
       </Text>
 
       {list.length === 0 ? (
-        <Text style={styles.emptyText}>None</Text>
+        <Text style={styles.emptyStateText}>None</Text>
       ) : (
-        <View style={{ gap: 12 }}>
+        <View style={{ gap: 10, marginTop: 12 }}>
           {list.map((o) => (
             <OrderCard key={o.id} o={o} />
           ))}
@@ -288,147 +345,240 @@ export default function VenueDashboard() {
     </View>
   );
 
-  const flowStyle = flowCardStyle(live.flow);
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: hPad,
-          paddingTop: 18,
+          paddingTop: 10,
           paddingBottom: 28,
         }}
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
-          <View style={styles.headerRow}>
+          {/* Top bar */}
+          <View style={styles.topBar}>
+            <View style={styles.brandBlock}>
+              <View style={styles.brandDot} />
+              <View>
+                <Text style={styles.brandTitle}>Golf Bar</Text>
+                <Text style={styles.brandSub}>venue_golfbar_cs · Venue Ops</Text>
+              </View>
+            </View>
+
+            <View style={styles.topBarActions}>
+              <View style={styles.timePill}>
+                <Text style={styles.timePillText}>{getClockLabel()}</Text>
+              </View>
+
+              <Pressable style={styles.exitBtn}>
+                <Text style={styles.exitBtnText}>Exit</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setMenuOpen(true)}
+                style={({ pressed }) => [styles.menuBtn, pressed && { opacity: 0.92 }]}
+              >
+                <Text style={styles.menuBtnText}>☰</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Menu modal */}
+          <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+            <Pressable style={styles.menuOverlay} onPress={() => setMenuOpen(false)}>
+              <View style={styles.menuSheet}>
+                <Text style={styles.menuTitle}>Navigate</Text>
+
+                <MenuAction
+                  label="Analytics"
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push({ pathname: "/(venue)/analytics", params: { venueId } });
+                  }}
+                />
+                <MenuAction
+                  label="Bookings"
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push("/(venue)/bookings");
+                  }}
+                />
+                <MenuAction
+                  label="Leaderboard"
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push("/(venue)/leaderboard");
+                  }}
+                />
+                <MenuAction
+                  label="Insights"
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push("/(venue)/insights");
+                  }}
+                />
+
+                {DEV_MODE && (
+                  <>
+                    <View style={styles.menuDivider} />
+                    <MenuAction
+                      label="Seed Booths"
+                      onPress={() => {
+                        setMenuOpen(false);
+                        router.push("/(venue)/seed-booths");
+                      }}
+                    />
+                    <MenuAction
+                      label="Seed Loyalty Profiles"
+                      onPress={async () => {
+                        try {
+                          await seedLoyaltyProfiles();
+                          setMenuOpen(false);
+                          Alert.alert("Done", "Loyalty profiles seeded.");
+                        } catch (e) {
+                          console.log(e);
+                          Alert.alert("Seed failed", "Could not seed loyalty profiles.");
+                        }
+                      }}
+                    />
+                  </>
+                )}
+              </View>
+            </Pressable>
+          </Modal>
+
+          {/* Secondary nav hint */}
+          <View style={styles.softNavRow}>
+            <Text style={styles.softNavText}>Runner view</Text>
+            <Text style={styles.softNavText}>Bookings</Text>
+            <Text style={styles.softNavText}>Insights</Text>
+            <Text style={styles.softNavText}>Leaderboard</Text>
+          </View>
+
+          {/* Flow status */}
+          <View
+            style={[
+              styles.flowCard,
+              {
+                backgroundColor: flowInfo.bg,
+                borderColor: flowInfo.borderColor,
+              },
+            ]}
+          >
             <View style={{ flex: 1 }}>
-              <Text style={styles.hTitle}>GOLF BAR</Text>
-              <Text style={styles.hSub}>Venue Ops • Not a kitchen • Live order flow</Text>
+              <Text style={styles.flowLabel}>FLOW STATUS</Text>
+
+              <View style={styles.flowStatusRow}>
+                <View style={[styles.flowDot, { backgroundColor: flowInfo.dot }]} />
+                <View>
+                  <Text style={styles.flowTitle}>{live.flow}</Text>
+                  <Text style={styles.flowHint}>{flowInfo.hint}</Text>
+                </View>
+              </View>
             </View>
 
-            <View style={styles.headerActions}>
-              <Pressable
-                onPress={() =>
-                  router.push({
-                    pathname: "/(venue)/analytics",
-                    params: { venueId },
-                  })
-                }
-                style={({ pressed }) => [styles.analyticsBtn, pressed && { opacity: 0.92 }]}
-              >
-                <Text style={styles.analyticsBtnText}>Analytics</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.push("/(venue)/bookings")}
-                style={({ pressed }) => [styles.secondaryHeaderBtn, pressed && { opacity: 0.92 }]}
-              >
-                <Text style={styles.secondaryHeaderBtnText}>Bookings</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.push("/(venue)/leaderboard")}
-                style={({ pressed }) => [styles.secondaryHeaderBtn, pressed && { opacity: 0.92 }]}
-              >
-                <Text style={styles.secondaryHeaderBtnText}>Leaderboard</Text>
-              </Pressable>
-
-              {DEV_MODE && (
-                <Pressable
-                  onPress={() => router.push("/(venue)/seed-booths")}
-                  style={({ pressed }) => [styles.devBtn, pressed && { opacity: 0.92 }]}
-                >
-                  <Text style={styles.devBtnText}>Seed Booths</Text>
-                </Pressable>
-              )}
+            <View style={styles.flowRules}>
+              <Text style={styles.flowRulesText}>Kitchen: Placed → Ready</Text>
+              <Text style={styles.flowRulesText}>Venue: Ready → Delivered</Text>
             </View>
           </View>
 
-          <Text style={styles.venueLine}>Venue: {venueId}</Text>
+          {/* KPI cards */}
+          <View style={styles.statsWrap}>
+            <StatCard label="ACTIVE ORDERS" value={String(live.active)} hint="Not delivered" />
+            <StatCard label="RUNNER READY" value={String(live.ready)} hint="Needs delivery" accent="gold" />
+            <StatCard label="DELIVERED TODAY" value={String(live.delivered)} hint="All fulfilled" accent="green" />
+            <StatCard
+              label="AVG FULFILLMENT"
+              value={live.avgFulfillment == null ? "—" : `${live.avgFulfillment}m`}
+              hint="Today (delivered)"
+            />
+          </View>
 
-          <View style={styles.liveWrap}>
-            <View style={[styles.liveCard, flowStyle]}>
-              <Text style={styles.liveLabel}>Flow</Text>
-              <Text style={styles.liveValue}>{live.flow}</Text>
-              <Text style={styles.liveHint}>
-                {live.flow === "Optimal"
-                  ? "Stable"
-                  : live.flow === "Busy"
-                  ? "Watch runner load"
-                  : "Runner attention needed"}
-              </Text>
-            </View>
+          {/* Live order queue header */}
+          <View style={styles.queueHeader}>
+            <Text style={styles.queueTitle}>LIVE ORDER QUEUE</Text>
 
-            <View style={styles.liveCard}>
-              <Text style={styles.liveLabel}>Active orders</Text>
-              <Text style={styles.liveValue}>{live.active}</Text>
-              <Text style={styles.liveHint}>Not delivered</Text>
-            </View>
-
-            <View style={styles.liveCard}>
-              <Text style={styles.liveLabel}>Runner ready</Text>
-              <Text style={styles.liveValue}>{live.ready}</Text>
-              <Text style={styles.liveHint}>Needs delivery</Text>
-            </View>
-
-            <View style={styles.liveCard}>
-              <Text style={styles.liveLabel}>Avg fulfillment</Text>
-              <Text style={styles.liveValue}>
-                {live.avgFulfillment == null ? "—" : `${live.avgFulfillment} min`}
-              </Text>
-              <Text style={styles.liveHint}>Today (delivered)</Text>
+            <View style={styles.tabsRow}>
+              <TabButton k="RUNNER" label={`Runner (${runnerList.length})`} />
+              <TabButton k="BOARD" label="Ops board" />
+              <TabButton k="DELIVERED" label={`Delivered (${deliveredList.length})`} />
             </View>
           </View>
 
-          <View style={styles.tabsRow}>
-            <TabButton k="RUNNER" label={`Runner (${runnerList.length})`} />
-            <TabButton k="BOARD" label="Ops Board" />
-            <TabButton k="DELIVERED" label={`Delivered (${deliveredList.length})`} />
-          </View>
-
+          {/* Queue content */}
           {tab === "RUNNER" && (
-            <View style={{ gap: 12, marginTop: 12 }}>
+            <View style={styles.queueBody}>
               {runnerList.length === 0 ? (
-                <Text style={styles.emptyText}>No READY orders right now.</Text>
+                <View style={styles.emptyQueueCard}>
+                  <Text style={styles.emptyQueueTitle}>No orders awaiting runner</Text>
+                  <Text style={styles.emptyQueueSub}>All ready orders have been delivered</Text>
+                </View>
               ) : (
-                runnerList.map((o) => <OrderCard key={o.id} o={o} showAction />)
+                <View style={{ gap: 10 }}>
+                  {runnerList.map((o) => (
+                    <OrderCard key={o.id} o={o} showAction />
+                  ))}
+                </View>
               )}
             </View>
           )}
 
           {tab === "BOARD" && (
-            <>
-              <Section title="READY (handoff)" list={groups.READY} />
+            <View style={styles.queueBody}>
+              <Section title="READY" list={groups.READY} />
               <Section title="PREPARING" list={groups.PREPARING} />
               <Section title="ACCEPTED" list={groups.ACCEPTED} />
-              <Section title="PLACED (new)" list={groups.PLACED} />
-            </>
-          )}
-
-          {tab === "DELIVERED" && (
-            <View style={{ gap: 12, marginTop: 12 }}>
-              {deliveredList.length === 0 ? (
-                <Text style={styles.emptyText}>No delivered orders yet.</Text>
-              ) : (
-                deliveredList.map((o) => <OrderCard key={o.id} o={o} />)
-              )}
+              <Section title="PLACED" list={groups.PLACED} />
             </View>
           )}
 
-          <View style={styles.ruleBox}>
-            <Text style={styles.ruleTitle}>Ops rule</Text>
-            <Text style={styles.ruleBody}>
-              Kitchen owns <Text style={styles.ruleStrong}>PLACED → READY</Text>. Venue owns{" "}
-              <Text style={styles.ruleStrong}>READY → DELIVERED</Text>.
-            </Text>
-          </View>
+          {tab === "DELIVERED" && (
+            <View style={styles.queueBody}>
+              <Text style={styles.sectionHeader}>DELIVERED ORDERS</Text>
+
+              {deliveredList.length === 0 ? (
+                <Text style={[styles.emptyStateText, { marginTop: 12 }]}>No delivered orders yet.</Text>
+              ) : (
+                <View style={{ gap: 10, marginTop: 12 }}>
+                  {deliveredList.map((o, index) => (
+                    <View key={o.id} style={styles.deliveredRowCard}>
+                      <View style={styles.deliveredLeftRow}>
+                        <Text style={styles.deliveredIndex}>#{String(deliveredList.length - index).padStart(2, "0")}</Text>
+                        <View>
+                          <Text style={styles.deliveredTitle}>
+                            Table {o.tableId}
+                            {o.boothLabel ? ` · ${o.boothLabel}` : ""}
+                          </Text>
+                          <Text style={styles.deliveredSub}>
+                            {o.restaurantName} · {Array.isArray(o.items) ? `${o.items.length} items` : "Delivered"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.deliveredRightRow}>
+                        <StatusChip status="DELIVERED" />
+                        <Text style={styles.deliveredTime}>
+                          {tsToDate(o.updatedAt ?? o.deliveredAt)?.toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          }) ?? "—"}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
 
           {DEV_MODE && (
             <View style={styles.devNote}>
               <Text style={styles.devNoteTitle}>Dev tools enabled</Text>
               <Text style={styles.devNoteBody}>
-                “Seed Booths” is temporary. Use it once, confirm Firestore booth docs, then set
-                DEV_MODE to false or remove the button before the final pitch.
+                Seed actions are temporary for demo prep. Remove or disable them before the final production handoff.
               </Text>
             </View>
           )}
@@ -439,264 +589,417 @@ export default function VenueDashboard() {
 }
 
 const styles = StyleSheet.create({
-  container: { width: "100%", maxWidth: 700, alignSelf: "center" },
+  container: {
+    width: "100%",
+    maxWidth: 980,
+    alignSelf: "center",
+  },
 
-  headerRow: {
+  topBar: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "flex-start",
     gap: 12,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
   },
-  headerActions: {
+  brandBlock: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+  },
+  brandDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#6EBB2A",
+    marginTop: 8,
+  },
+  brandTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  brandSub: {
+    color: "rgba(255,255,255,0.44)",
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  topBarActions: {
+    flexDirection: "row",
     gap: 8,
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  timePill: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  timePillText: {
+    color: "rgba(255,255,255,0.7)",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+  exitBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(138, 33, 24, 0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 87, 87, 0.22)",
+  },
+  exitBtnText: {
+    color: "#FF705C",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+  menuBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuBtnText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "flex-start",
     alignItems: "flex-end",
+    paddingTop: 60,
+    paddingRight: 18,
   },
-
-  hTitle: {
+  menuSheet: {
+    width: 230,
+    borderRadius: 18,
+    backgroundColor: "#0b1a13",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    padding: 12,
+    gap: 8,
+  },
+  menuTitle: {
     color: "white",
-    fontSize: 26,
     fontWeight: "900",
-    letterSpacing: 0.6,
+    fontSize: 14,
+    marginBottom: 4,
   },
-  hSub: {
-    color: "rgba(255,255,255,0.75)",
-    marginTop: 6,
+  menuAction: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  menuActionText: {
+    color: "white",
     fontWeight: "800",
   },
-  venueLine: {
-    color: "rgba(255,255,255,0.6)",
+  menuDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    marginVertical: 4,
+  },
+
+  softNavRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 18,
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  softNavText: {
+    color: "rgba(255,255,255,0.16)",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
+  flowCard: {
+    marginTop: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 14,
+    flexWrap: "wrap",
+  },
+  flowLabel: {
+    color: "rgba(255,255,255,0.42)",
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.7,
+  },
+  flowStatusRow: {
     marginTop: 10,
-    fontWeight: "800",
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
   },
-
-  analyticsBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: theme.colors.gold,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.12)",
+  flowDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    marginTop: 6,
   },
-  analyticsBtnText: {
-    color: "#111",
-    fontWeight: "900",
-  },
-
-  secondaryHeaderBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: "#0d1f17",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  secondaryHeaderBtnText: {
+  flowTitle: {
     color: "white",
+    fontSize: 24,
     fontWeight: "900",
+    lineHeight: 26,
+  },
+  flowHint: {
+    color: "rgba(255,255,255,0.52)",
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  flowRules: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minWidth: 180,
+  },
+  flowRulesText: {
+    color: "rgba(255,255,255,0.46)",
+    fontWeight: "700",
+    textAlign: "right",
+    lineHeight: 18,
   },
 
-  devBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: "#333",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  devBtnText: {
-    color: "white",
-    fontWeight: "900",
-  },
-
-  liveWrap: {
+  statsWrap: {
     marginTop: 14,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
   },
-  liveCard: {
+  statCard: {
     flexGrow: 1,
-    minWidth: 150,
-    padding: 12,
+    minWidth: 180,
+    padding: 16,
     borderRadius: 18,
-    backgroundColor: "#0d1f17",
+    backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  liveLabel: {
-    color: "rgba(255,255,255,0.65)",
+  statLabel: {
+    color: "rgba(255,255,255,0.38)",
+    fontSize: 12,
     fontWeight: "900",
+    letterSpacing: 0.7,
   },
-  liveValue: {
-    color: "white",
-    fontSize: 18,
+  statValue: {
+    fontSize: 24,
     fontWeight: "900",
     marginTop: 8,
+    lineHeight: 26,
   },
-  liveHint: {
-    color: "rgba(255,255,255,0.55)",
-    fontWeight: "800",
-    marginTop: 6,
-    fontSize: 12,
+  statHint: {
+    color: "rgba(255,255,255,0.46)",
+    fontWeight: "700",
+    marginTop: 4,
+  },
+
+  queueHeader: {
+    marginTop: 18,
+  },
+  queueTitle: {
+    color: "rgba(255,255,255,0.46)",
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.7,
   },
 
   tabsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 14,
+    marginTop: 10,
+    justifyContent: "flex-end",
   },
-
   tabBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
   },
   tabBtnActive: {
-    backgroundColor: theme.colors.gold,
-    borderColor: "rgba(0,0,0,0.12)",
+    backgroundColor: "rgba(110, 187, 42, 0.14)",
+    borderColor: "rgba(110, 187, 42, 0.24)",
   },
   tabBtnInactive: {
-    backgroundColor: "#0d1f17",
-    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.08)",
   },
   tabText: {
     fontWeight: "900",
+    fontSize: 12,
   },
   tabTextActive: {
-    color: "#111",
+    color: "#9BE38B",
   },
   tabTextInactive: {
-    color: "white",
+    color: "rgba(255,255,255,0.6)",
   },
 
-  card: {
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: "#1a3a2b",
-    borderWidth: 1,
-    borderColor: theme.colors.gold,
-    gap: 10,
+  queueBody: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
   },
-  cardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+
+  emptyQueueCard: {
+    paddingVertical: 42,
     alignItems: "center",
-    gap: 10,
+    justifyContent: "center",
   },
-  cardTitle: {
-    color: "white",
+  emptyQueueTitle: {
+    color: "rgba(255,255,255,0.34)",
+    fontSize: 24,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  emptyQueueSub: {
+    color: "rgba(255,255,255,0.24)",
+    fontWeight: "700",
+    marginTop: 8,
+    textAlign: "center",
+  },
+
+  sectionHeader: {
+    color: "rgba(255,255,255,0.46)",
+    fontSize: 13,
     fontWeight: "900",
-    fontSize: 16,
+    letterSpacing: 0.7,
   },
-  cardMeta: {
-    color: "rgba(255,255,255,0.70)",
-    marginTop: 6,
+  emptyStateText: {
+    color: "rgba(255,255,255,0.42)",
     fontWeight: "700",
   },
 
-  statusChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
+  orderCard: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.08)",
+    gap: 12,
   },
-  statusChipText: {
+  orderTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  orderTitle: {
     color: "white",
+    fontSize: 18,
     fontWeight: "900",
   },
-
-  badgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  orderSub: {
+    color: "rgba(255,255,255,0.54)",
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  orderRightMeta: {
+    alignItems: "flex-end",
     gap: 8,
   },
-
-  badgeGold: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: theme.colors.gold,
-    maxWidth: 220,
-  },
-  badgeGoldText: {
-    color: "#111",
-    fontWeight: "900",
+  orderTime: {
+    color: "rgba(255,255,255,0.36)",
+    fontWeight: "700",
+    fontSize: 12,
   },
 
-  pillDark: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  statusChip: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
     borderRadius: 999,
-    backgroundColor: "#0d1f17",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    maxWidth: 220,
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  pillDarkText: {
-    color: "white",
+  statusChipText: {
     fontWeight: "900",
+    fontSize: 12,
   },
 
-  primaryBtn: {
+  primaryActionBtn: {
     paddingVertical: 12,
     borderRadius: 14,
     backgroundColor: theme.colors.gold,
   },
-  primaryBtnText: {
+  primaryActionBtnText: {
     color: "#111",
     fontWeight: "900",
     textAlign: "center",
   },
 
-  orderId: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-
-  sectionTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  emptyText: {
-    color: "rgba(255,255,255,0.65)",
-    fontWeight: "700",
-  },
-
-  ruleBox: {
-    marginTop: 18,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: "#0d1f17",
+  deliveredRowCard: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.08)",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
   },
-  ruleTitle: {
+  deliveredLeftRow: {
+    flexDirection: "row",
+    gap: 14,
+    alignItems: "center",
+    flex: 1,
+    minWidth: 220,
+  },
+  deliveredIndex: {
+    color: "rgba(255,255,255,0.32)",
+    fontWeight: "900",
+    fontSize: 22,
+    minWidth: 42,
+  },
+  deliveredTitle: {
     color: "white",
     fontWeight: "900",
-    fontSize: 14,
+    fontSize: 18,
   },
-  ruleBody: {
-    color: "rgba(255,255,255,0.75)",
-    marginTop: 8,
+  deliveredSub: {
+    color: "rgba(255,255,255,0.5)",
     fontWeight: "700",
-    lineHeight: 18,
+    marginTop: 4,
   },
-  ruleStrong: {
-    color: "white",
-    fontWeight: "900",
+  deliveredRightRow: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  deliveredTime: {
+    color: "rgba(255,255,255,0.4)",
+    fontWeight: "700",
+    fontSize: 12,
   },
 
   devNote: {
     marginTop: 18,
     padding: 14,
     borderRadius: 18,
-    backgroundColor: "#221f17",
+    backgroundColor: "rgba(255,179,71,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,215,0,0.18)",
+    borderColor: "rgba(255,179,71,0.14)",
   },
   devNoteTitle: {
     color: theme.colors.goldSoft,
@@ -704,7 +1007,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   devNoteBody: {
-    color: "rgba(255,255,255,0.72)",
+    color: "rgba(255,255,255,0.62)",
     marginTop: 8,
     fontWeight: "700",
     lineHeight: 18,

@@ -9,25 +9,40 @@ import {
 import { refs } from "../../lib/firestoreRefs";
 import { normalizeEmail } from "../../utils/identity";
 
-export type LoyaltyTier = "BRONZE" | "SILVER" | "GOLD";
+export type LoyaltyLeague =
+  | "Newcomer"
+  | "Journeyman"
+  | "Expert"
+  | "Professional"
+  | "Master"
+  | "Legend"
+  | "Trailblazer"
+  | "Ascendant"
+  | "Crest";
 
-function calculatePoints(input: {
-  eventType?: string;
-  boothType?: string;
-}) {
-  let points = 25;
-
-  if (input.eventType === "BIRTHDAY") points += 10;
-  if (input.eventType === "CORPORATE") points += 15;
-  if (input.boothType === "ADVANCED") points += 5;
-
-  return points;
+function calculatePoints() {
+  return 30;
 }
 
-function getTier(points: number): LoyaltyTier {
-  if (points >= 250) return "GOLD";
-  if (points >= 100) return "SILVER";
-  return "BRONZE";
+function getLeague(points: number): LoyaltyLeague {
+  if (points >= 3000) return "Crest";
+  if (points >= 2250) return "Ascendant";
+  if (points >= 1500) return "Trailblazer";
+  if (points >= 1000) return "Legend";
+  if (points >= 750) return "Master";
+  if (points >= 400) return "Professional";
+  if (points >= 270) return "Expert";
+  if (points >= 50) return "Journeyman";
+  return "Newcomer";
+}
+
+function getRewardsEarned(completedBookings: number) {
+  return Math.floor(completedBookings / 7);
+}
+
+function getBookingsUntilNextReward(completedBookings: number) {
+  const remainder = completedBookings % 7;
+  return remainder === 0 ? 7 : 7 - remainder;
 }
 
 type CompletedBookingInput = {
@@ -47,13 +62,9 @@ export async function awardLoyaltyForCompletedBooking(
   const customerName = booking.customerName?.trim();
 
   if (!customerEmail || !customerName) return;
-
   if (booking.loyaltyAwardedAt) return;
 
-  const pointsToAdd = calculatePoints({
-    eventType: booking.eventType,
-    boothType: booking.boothType,
-  });
+  const pointsToAdd = calculatePoints();
 
   const q = query(
     refs.loyaltyProfiles(),
@@ -66,6 +77,8 @@ export async function awardLoyaltyForCompletedBooking(
     const totalPoints = pointsToAdd;
     const totalVisits = 1;
     const completedBookings = 1;
+    const rewardsEarned = getRewardsEarned(completedBookings);
+    const bookingsUntilNextReward = getBookingsUntilNextReward(completedBookings);
 
     await addDoc(refs.loyaltyProfiles(), {
       customerEmail,
@@ -75,7 +88,10 @@ export async function awardLoyaltyForCompletedBooking(
       totalPoints,
       totalVisits,
       completedBookings,
-      currentTier: getTier(totalPoints),
+      currentLeague: getLeague(totalPoints),
+
+      rewardsEarned,
+      bookingsUntilNextReward,
 
       lastVisitAt: serverTimestamp(),
       createdAt: serverTimestamp(),
@@ -88,6 +104,8 @@ export async function awardLoyaltyForCompletedBooking(
     const totalPoints = (data.totalPoints ?? 0) + pointsToAdd;
     const totalVisits = (data.totalVisits ?? 0) + 1;
     const completedBookings = (data.completedBookings ?? 0) + 1;
+    const rewardsEarned = getRewardsEarned(completedBookings);
+    const bookingsUntilNextReward = getBookingsUntilNextReward(completedBookings);
 
     await updateDoc(refs.loyaltyProfile(profileDoc.id), {
       customerName,
@@ -96,7 +114,10 @@ export async function awardLoyaltyForCompletedBooking(
       totalPoints,
       totalVisits,
       completedBookings,
-      currentTier: getTier(totalPoints),
+      currentLeague: getLeague(totalPoints),
+
+      rewardsEarned,
+      bookingsUntilNextReward,
 
       lastVisitAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

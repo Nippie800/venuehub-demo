@@ -68,29 +68,6 @@ function getPodiumCardStyle(tone: PodiumTone) {
   }
 }
 
-function getLeagueTone(league?: string) {
-  switch (league) {
-    case "Crest":
-      return { bg: theme.colors.gold, color: "#111", border: "rgba(0,0,0,0.12)" };
-    case "Ascendant":
-      return { bg: "rgba(255,255,255,0.10)", color: "white", border: "rgba(255,255,255,0.14)" };
-    case "Trailblazer":
-      return { bg: "rgba(255,215,0,0.12)", color: theme.colors.goldSoft, border: "rgba(255,215,0,0.25)" };
-    case "Legend":
-      return { bg: "rgba(255,255,255,0.08)", color: "white", border: "rgba(255,255,255,0.12)" };
-    case "Master":
-      return { bg: "rgba(255,255,255,0.08)", color: "white", border: "rgba(255,255,255,0.12)" };
-    case "Professional":
-      return { bg: "rgba(255,255,255,0.08)", color: "white", border: "rgba(255,255,255,0.12)" };
-    case "Expert":
-      return { bg: "rgba(255,255,255,0.08)", color: "white", border: "rgba(255,255,255,0.12)" };
-    case "Journeyman":
-      return { bg: "rgba(255,255,255,0.08)", color: "white", border: "rgba(255,255,255,0.12)" };
-    default:
-      return { bg: "#0d1f17", color: "white", border: "rgba(255,255,255,0.12)" };
-  }
-}
-
 function initialsFromName(name?: string) {
   if (!name) return "GB";
   const parts = name.trim().split(/\s+/).slice(0, 2);
@@ -132,22 +109,6 @@ function RangePill({
   );
 }
 
-function LeagueChip({ league }: { league?: string }) {
-  const tone = getLeagueTone(league);
-  return (
-    <View
-      style={[
-        styles.leagueChip,
-        { backgroundColor: tone.bg, borderColor: tone.border },
-      ]}
-    >
-      <Text style={[styles.leagueChipText, { color: tone.color }]}>
-        {league ?? "Newcomer"}
-      </Text>
-    </View>
-  );
-}
-
 function PodiumImage({ rank }: { rank: number }) {
   const tone = getPodiumTone(rank);
   if (tone === "standard") return null;
@@ -168,7 +129,7 @@ function LivePill() {
   );
 }
 
-export default function VenueLeaderboardScreen() {
+export default function CustomerLeaderboardScreen() {
   const { width } = useWindowDimensions();
   const hPad = useMemo(() => (width < 380 ? 16 : 24), [width]);
 
@@ -217,7 +178,7 @@ export default function VenueLeaderboardScreen() {
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>Leaderboard</Text>
-              <Text style={styles.sub}>Golf Bar — loyalty rankings</Text>
+              <Text style={styles.sub}>Golf Bar — public rankings</Text>
             </View>
 
             <View style={styles.headerRight}>
@@ -236,7 +197,7 @@ export default function VenueLeaderboardScreen() {
               <ActivityIndicator color={theme.colors.gold} />
             </View>
           ) : standings.length === 0 ? (
-            <Text style={styles.empty}>No loyalty profiles yet.</Text>
+            <Text style={styles.empty}>No leaderboard data yet.</Text>
           ) : (
             <>
               <Text style={styles.sectionEyebrow}>PODIUM</Text>
@@ -276,10 +237,6 @@ export default function VenueLeaderboardScreen() {
                         <Text style={styles.podiumName} numberOfLines={1}>
                           {player.customerName}
                         </Text>
-                        <Text style={styles.podiumEmail} numberOfLines={1}>
-                          {player.customerEmail}
-                        </Text>
-                        <LeagueChip league={player.currentLeague} />
                       </View>
 
                       <View style={styles.podiumStatsRow}>
@@ -370,10 +327,6 @@ export default function VenueLeaderboardScreen() {
                           </Text>
                           {streak && <View style={styles.orangeDot} />}
                         </View>
-
-                        <Text style={styles.rowEmail} numberOfLines={1}>
-                          {player.customerEmail}
-                        </Text>
                       </View>
 
                       <View style={styles.rowStatsRight}>
@@ -543,11 +496,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 26,
   },
-  podiumEmail: {
-    color: "rgba(255,255,255,0.72)",
-    fontWeight: "700",
-    fontSize: 13,
-  },
 
   podiumStatsRow: {
     flexDirection: "row",
@@ -682,12 +630,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "#FF9C3A",
   },
-  rowEmail: {
-    color: "rgba(255,255,255,0.68)",
-    fontWeight: "700",
-    marginTop: 2,
-    fontSize: 13,
-  },
 
   rowStatsRight: {
     alignItems: "flex-end",
@@ -706,19 +648,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     textAlign: "right",
-  },
-
-  leagueChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    alignSelf: "flex-start",
-    marginTop: 6,
-  },
-  leagueChipText: {
-    fontWeight: "900",
-    fontSize: 11,
   },
 
   footerHint: {

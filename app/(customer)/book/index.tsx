@@ -95,7 +95,9 @@ function overlaps(
 function isActiveBooking(status?: string) {
   return status !== "CANCELLED" && status !== "COMPLETED" && status !== "REJECTED";
 }
-
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
 function getBaseTimeSlots(durationHours: 1 | 2) {
   const latestStart = CLOSING_HOUR - durationHours;
   const slots: string[] = [];
@@ -378,9 +380,9 @@ export default function BookingScreen() {
 
   const validate = () => {
     if (!customerName.trim()) return "Enter customer name.";
-    if (!normalizedCustomerEmail || !normalizedCustomerEmail.includes("@")) {
-      return "Enter a valid email.";
-    }
+    if (!normalizedCustomerEmail || !isValidEmail(normalizedCustomerEmail)) {
+  return "Enter a valid email address.";
+}
     if (!customerPhone.trim()) return "Enter phone number.";
     if (!bookingDate) return "Select a booking date.";
     if (selectedDayMeta?.isFull) return "That date is fully booked. Please choose another date.";
@@ -488,12 +490,13 @@ export default function BookingScreen() {
                 placeholder="Full name"
               />
               <Input
-                value={customerEmail}
-                onChangeText={setCustomerEmail}
-                placeholder="Email"
-                autoCapitalize="none"
-                keyboardType="email-address"
-              />
+  value={customerEmail}
+  onChangeText={(v) => setCustomerEmail(v.trim())}
+  placeholder="Email address"
+  autoCapitalize="none"
+  keyboardType="email-address"
+  autoCorrect={false}
+/>
               <Input
                 value={customerPhone}
                 onChangeText={setCustomerPhone}
@@ -501,12 +504,20 @@ export default function BookingScreen() {
                 keyboardType="phone-pad"
               />
 
-              {!!normalizedCustomerEmail && (
-                <Text style={styles.helper}>
-                  Booking email: {normalizedCustomerEmail}
-                </Text>
-              )}
-
+             {!!normalizedCustomerEmail && (
+  <Text
+    style={[
+      styles.helper,
+      !isValidEmail(normalizedCustomerEmail) && {
+        color: "#ff7b7b",
+      },
+    ]}
+  >
+    {!isValidEmail(normalizedCustomerEmail)
+      ? "Please enter a valid email address."
+      : `Booking email: ${normalizedCustomerEmail}`}
+  </Text>
+)}
               <Text style={styles.section}>Booking date</Text>
 
               {loadingAvailability ? (
@@ -705,7 +716,7 @@ export default function BookingScreen() {
                   />
                 ))}
               </View>
-
+<Text style={styles.section}>How many guests</Text>
               <Input
                 value={guestCount}
                 onChangeText={setGuestCount}
@@ -743,6 +754,7 @@ function Input({
   multiline,
   autoCapitalize,
   keyboardType,
+  autoCorrect,
 }: {
   value: string;
   onChangeText: (v: string) => void;
@@ -750,16 +762,18 @@ function Input({
   multiline?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   keyboardType?: "default" | "email-address" | "phone-pad" | "numeric";
+  autoCorrect?: boolean;
 }) {
   return (
     <TextInput
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor="rgba(255,255,255,0.45)"
-      multiline={multiline}
-      autoCapitalize={autoCapitalize}
-      keyboardType={keyboardType}
+  value={value}
+  onChangeText={onChangeText}
+  placeholder={placeholder}
+  placeholderTextColor="rgba(255,255,255,0.45)"
+  multiline={multiline}
+  autoCapitalize={autoCapitalize}
+  keyboardType={keyboardType}
+  autoCorrect={autoCorrect}
       style={[
         styles.input,
         multiline && { minHeight: 88, textAlignVertical: "top" as const },

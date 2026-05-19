@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   useWindowDimensions,
+  Modal,
+  TextInput,
 } from "react-native";
 import { router } from "expo-router";
 import { theme } from "../../src/ui/theme";
@@ -17,13 +19,21 @@ import {
   ExistingBooking,
 } from "../../src/domain/bookings/bookingQueries";
 import { listBoothsForVenue, Booth } from "../../src/domain/booths/boothQueries";
-import { updateBookingStatus } from "../../src/domain/bookings/bookingMutations";
+import {
+  updateBookingStatus,
+  completeBookingWithReference,
+} from "../../src/domain/bookings/bookingMutations";
 
 const VENUE_ID = "venue_golfbar_cs";
 
 type StatusFilter = "ALL" | "PENDING" | "CONFIRMED" | "REJECTED" | "COMPLETED";
 type EventFilter = "ALL" | "CASUAL" | "BIRTHDAY" | "CORPORATE";
 type BoothFilter = "ALL" | string;
+
+type BookingWithRef = ExistingBooking & {
+  bookingRef?: string;
+  notificationStatus?: string;
+};
 
 function StatusChip({ status }: { status: string }) {
   const bg =
@@ -34,12 +44,17 @@ function StatusChip({ status }: { status: string }) {
       : status === "REJECTED"
       ? "rgba(255,255,255,0.08)"
       : status === "COMPLETED"
-      ? "rgba(255,215,0,0.18)"
+      ? "rgba(132,212,75,0.18)"
       : "rgba(255,255,255,0.10)";
+
+  const color =
+    status === "COMPLETED"
+      ? "#9BE38B"
+      : "white";
 
   return (
     <View style={[styles.statusChip, { backgroundColor: bg }]}>
-      <Text style={styles.statusChipText}>{status}</Text>
+      <Text style={[styles.statusChipText, { color }]}>{status}</Text>
     </View>
   );
 }
@@ -88,13 +103,17 @@ export default function VenueBookingsScreen() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const [bookings, setBookings] = useState<ExistingBooking[]>([]);
+  const [bookings, setBookings] = useState<BookingWithRef[]>([]);
   const [booths, setBooths] = useState<Booth[]>([]);
 
   const [selectedDate, setSelectedDate] = useState<string>("ALL");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [eventFilter, setEventFilter] = useState<EventFilter>("ALL");
   const [boothFilter, setBoothFilter] = useState<BoothFilter>("ALL");
+
+  const [completeModalOpen, setCompleteModalOpen] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<BookingWithRef | null>(null);
+  const [enteredBookingRef, setEnteredBookingRef] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -107,7 +126,7 @@ export default function VenueBookingsScreen() {
         ]);
 
         if (!mounted) return;
-        setBookings(bookingRows);
+        setBookings(bookingRows as BookingWithRef[]);
         setBooths(boothRows);
       } catch (e) {
         console.log(e);
@@ -140,7 +159,7 @@ export default function VenueBookingsScreen() {
   }, [bookings, selectedDate, statusFilter, eventFilter, boothFilter]);
 
   const grouped = useMemo(() => {
-    const map: Record<string, ExistingBooking[]> = {};
+    const map: Record<string, BookingWithRef[]> = {};
 
     for (const b of filtered) {
       if (!map[b.bookingDate]) map[b.bookingDate] = [];
@@ -152,7 +171,7 @@ export default function VenueBookingsScreen() {
 
   const onStatusChange = async (
     bookingId: string,
-    status: "CONFIRMED" | "REJECTED" | "COMPLETED"
+    status: "CONFIRMED" | "REJECTED"
   ) => {
     try {
       setBusyId(bookingId);
@@ -165,10 +184,7 @@ export default function VenueBookingsScreen() {
             ? {
                 ...b,
                 status,
-                notificationStatus:
-                  status === "CONFIRMED" || status === "REJECTED"
-                    ? "PENDING"
-                    : (b as any).notificationStatus,
+                notificationStatus: "PENDING",
               }
             : b
         )
@@ -176,6 +192,51 @@ export default function VenueBookingsScreen() {
     } catch (e: any) {
       console.log(e);
       Alert.alert("Update failed", e?.message ?? "Unknown error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openCompleteModal = (booking: BookingWithRef) => {
+    setSelectedBooking(booking);
+    setEnteredBookingRef("");
+    setCompleteModalOpen(true);
+  };
+
+  const closeCompleteModal = () => {
+    setCompleteModalOpen(false);
+    setSelectedBooking(null);
+    setEnteredBookingRef("");
+  };
+
+  const onConfirmComplete = async () => {
+    if (!selectedBooking) return;
+
+    try {
+      setBusyId(selectedBooking.id);
+
+      await completeBookingWithReference(
+        selectedBooking.id,
+        selectedBooking.bookingRef ?? "",
+        enteredBookingRef
+      );
+
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === selectedBooking.id
+            ? {
+                ...b,
+                status: "COMPLETED",
+              }
+            : b
+        )
+      );
+
+      closeCompleteModal();
+      Alert.alert("Booking completed", "Arrival verified and loyalty can now be awarded.");
+    } catch (e: any) {
+      console.log(e);
+      Alert.alert("Completion blocked", e?.message ?? "Could not complete booking.");
     } finally {
       setBusyId(null);
     }
@@ -200,7 +261,7 @@ export default function VenueBookingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>Venue Bookings</Text>
               <Text style={styles.sub}>
-                Review bookings by day, booth, and event type.
+                Review bookings by day, booth, event type, and verified arrival reference.
               </Text>
             </View>
 
@@ -322,9 +383,12 @@ export default function VenueBookingsScreen() {
                             )}
 
                             <Text style={styles.smallText}>Phone: {b.customerPhone}</Text>
+                            <Text style={styles.smallText}>
+                              Booking Ref: {b.bookingRef ?? "Not generated"}
+                            </Text>
                             <Text style={styles.smallText}>Booking ID: {b.id}</Text>
                             <Text style={styles.smallText}>
-                              Notification: {(b as any).notificationStatus ?? "NOT_REQUIRED"}
+                              Notification: {b.notificationStatus ?? "NOT_REQUIRED"}
                             </Text>
 
                             {b.status === "PENDING" && (
@@ -350,17 +414,26 @@ export default function VenueBookingsScreen() {
                             )}
 
                             {b.status === "CONFIRMED" && (
-                              <View style={styles.actionRow}>
-                                <Pressable
-                                  disabled={busy}
-                                  onPress={() => onStatusChange(b.id, "COMPLETED")}
-                                  style={[styles.completeBtn, busy && { opacity: 0.6 }]}
-                                >
-                                  <Text style={styles.completeBtnText}>
-                                    {busy ? "Updating..." : "Mark Completed"}
+                              <>
+                                <View style={styles.verifyBox}>
+                                  <Text style={styles.verifyTitle}>Arrival verification required</Text>
+                                  <Text style={styles.verifyText}>
+                                    Ask the customer for their booking reference before marking this session as completed.
                                   </Text>
-                                </Pressable>
-                              </View>
+                                </View>
+
+                                <View style={styles.actionRow}>
+                                  <Pressable
+                                    disabled={busy}
+                                    onPress={() => openCompleteModal(b)}
+                                    style={[styles.completeBtn, busy && { opacity: 0.6 }]}
+                                  >
+                                    <Text style={styles.completeBtnText}>
+                                      {busy ? "Updating..." : "Verify & Complete"}
+                                    </Text>
+                                  </Pressable>
+                                </View>
+                              </>
                             )}
                           </View>
                         );
@@ -373,6 +446,61 @@ export default function VenueBookingsScreen() {
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={completeModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCompleteModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Complete booking</Text>
+            <Text style={styles.modalSub}>
+              Enter the customer booking reference to verify arrival before awarding loyalty points.
+            </Text>
+
+            <View style={styles.modalInfoBox}>
+              <Text style={styles.modalInfoLabel}>Expected booking ref</Text>
+              <Text style={styles.modalInfoValue}>
+                {selectedBooking?.bookingRef ?? "Missing reference"}
+              </Text>
+            </View>
+
+            <TextInput
+              value={enteredBookingRef}
+              onChangeText={setEnteredBookingRef}
+              placeholder="Enter booking reference"
+              placeholderTextColor="rgba(255,255,255,0.45)"
+              autoCapitalize="characters"
+              style={styles.input}
+            />
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={closeCompleteModal}
+                style={({ pressed }) => [styles.modalSecondaryBtn, pressed && { opacity: 0.92 }]}
+              >
+                <Text style={styles.modalSecondaryBtnText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={onConfirmComplete}
+                disabled={busyId === selectedBooking?.id}
+                style={({ pressed }) => [
+                  styles.modalPrimaryBtn,
+                  busyId === selectedBooking?.id && { opacity: 0.6 },
+                  pressed && { opacity: 0.92 },
+                ]}
+              >
+                <Text style={styles.modalPrimaryBtnText}>
+                  {busyId === selectedBooking?.id ? "Verifying..." : "Confirm completion"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -473,7 +601,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
   },
   statusChipText: {
-    color: "white",
     fontWeight: "900",
   },
 
@@ -522,6 +649,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
+  verifyBox: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#0d1f17",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  verifyTitle: {
+    color: theme.colors.goldSoft,
+    fontWeight: "900",
+    fontSize: 13,
+  },
+  verifyText: {
+    color: "rgba(255,255,255,0.72)",
+    marginTop: 6,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+
   actionRow: {
     flexDirection: "row",
     gap: 10,
@@ -559,6 +706,92 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.gold,
   },
   completeBtnText: {
+    color: "#111",
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    borderRadius: 22,
+    padding: 18,
+    backgroundColor: "#102418",
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+  },
+  modalTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  modalSub: {
+    color: "rgba(255,255,255,0.72)",
+    marginTop: 8,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+
+  modalInfoBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: "#0d1f17",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  modalInfoLabel: {
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  modalInfoValue: {
+    color: theme.colors.goldSoft,
+    fontWeight: "900",
+    fontSize: 18,
+    marginTop: 6,
+  },
+
+  input: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "#0d1f17",
+    color: "white",
+    fontWeight: "800",
+  },
+
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+  modalSecondaryBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: "#0d1f17",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  modalSecondaryBtnText: {
+    color: "white",
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  modalPrimaryBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: theme.colors.gold,
+  },
+  modalPrimaryBtnText: {
     color: "#111",
     fontWeight: "900",
     textAlign: "center",

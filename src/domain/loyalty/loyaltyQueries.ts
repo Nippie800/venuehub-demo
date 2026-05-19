@@ -2,7 +2,16 @@ import { getDoc, getDocs, query, where } from "firebase/firestore";
 import { refs } from "../../lib/firestoreRefs";
 import { normalizeEmail } from "../../utils/identity";
 
-export type LoyaltyTier = "BRONZE" | "SILVER" | "GOLD";
+export type LoyaltyLeague =
+  | "Newcomer"
+  | "Journeyman"
+  | "Expert"
+  | "Professional"
+  | "Master"
+  | "Legend"
+  | "Trailblazer"
+  | "Ascendant"
+  | "Crest";
 
 export type LoyaltyProfile = {
   id: string;
@@ -14,7 +23,10 @@ export type LoyaltyProfile = {
   totalVisits: number;
   completedBookings: number;
 
-  currentTier: LoyaltyTier;
+  currentLeague: LoyaltyLeague;
+  rewardsEarned: number;
+  bookingsUntilNextReward: number;
+
   lastVisitAt?: any;
   createdAt?: any;
   updatedAt?: any;
