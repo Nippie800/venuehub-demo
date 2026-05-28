@@ -8,7 +8,7 @@ import { Resend } from "resend";
 initializeApp();
 const db = getFirestore();
 
-const RESEND_API_KEY = "";
+const RESEND_API_KEY = "re_WJsLK7gZ_3ufgtGj4johFgsw7zRpb1ktc";
 
 // Hardcoded temporarily for demo stability.
 const VERIFIED_FROM_EMAIL = "bookings@golfbarapp.com";
